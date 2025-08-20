@@ -24,7 +24,7 @@ A Python-based utility for synchronizing data from Oracle tables to PostgreSQL t
 Clone the repository and install dependencies:
 
 ```sh
-git clone <your-repo-url>
+git clone https://github.com/RiprLutuk/copy-table-oracle-to-postgresql.git
 cd sync_data
 pip install -r requirements.txt
 ```
@@ -79,6 +79,64 @@ python -m sync_project.sync a_hp_batch a_hp_batch_detail
 
 - Ensure the PostgreSQL tables exist and have the same structure as the Oracle tables.
 - Both databases must be accessible from the machine running the script.
+
+## Oracle Client Setup
+
+To connect to Oracle, you must install the Oracle Instant Client and configure `tnsnames.ora`:
+
+### 1. Download and Install Oracle Instant Client
+
+- Go to [Oracle Instant Client Downloads](https://www.oracle.com/database/technologies/instant-client/downloads.html).
+- Download the **Basic** and **SQL*Plus** packages for your OS (Linux x86-64 is common).
+- Unzip both packages to the same directory, e.g., `/opt/oracle/instantclient_21_11`.
+
+### 2. Configure Environment Variables
+
+Add the following to your `~/.bashrc` or `~/.profile`:
+
+```sh
+export ORACLE_HOME=/opt/oracle/instantclient_21_11
+export LD_LIBRARY_PATH=$ORACLE_HOME
+export PATH=$ORACLE_HOME:$PATH
+```
+
+Reload your shell:
+
+```sh
+source ~/.bashrc
+```
+
+### 3. Setup `tnsnames.ora`
+
+- Create a directory for Oracle network configuration if it doesn't exist:
+
+    ```sh
+    mkdir -p $ORACLE_HOME/network/admin
+    ```
+
+- Create or edit `$ORACLE_HOME/network/admin/tnsnames.ora` and add your Oracle service:
+
+    ```
+    YOURDB =
+      (DESCRIPTION =
+        (ADDRESS = (PROTOCOL = TCP)(HOST = your_host)(PORT = your_port))
+        (CONNECT_DATA =
+          (SERVICE_NAME = your_service_name)
+        )
+      )
+    ```
+
+- Use `YOURDB` as the `ORACLE_DSN` in your configuration.
+
+### 4. Test the Connection
+
+You can test with SQL*Plus:
+
+```sh
+sqlplus your_oracle_user/your_oracle_password@YOURDB
+```
+
+If you connect successfully, your Python script should also
 
 ## License
 

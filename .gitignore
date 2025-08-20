@@ -1,0 +1,37 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+env/
+venv/
+ENV/
+.venv/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database dumps/backups
+*.sql
+*.dump
+
+# Python notebooks
+*.ipynb_checkpoints
+
+# VS Code settings
+.vscode/
+
+# Local environment files
+.env
+.env.*
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.log
