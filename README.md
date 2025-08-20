@@ -13,7 +13,7 @@ A Python-based utility for synchronizing data from Oracle tables to PostgreSQL t
 ## Requirements
 
 - Python 3.7 or higher
-- Oracle client libraries (for `oracledb`)
+- Oracle Instant Client (for `oracledb`)
 - PostgreSQL server
 - Python packages:
   - `psycopg2-binary`
@@ -36,7 +36,7 @@ Edit `sync_project/config.py` to set your database connection details:
 ```python
 ORACLE_USER = "your_oracle_user"
 ORACLE_PASS = "your_oracle_password"
-ORACLE_DSN  = "host:port/service_name"
+ORACLE_DSN  = "YOURDB"  # Use the TNS name defined in tnsnames.ora
 ORACLE_SCHEMA = "your_oracle_schema"
 
 PG_CONN = {
@@ -60,7 +60,7 @@ python -m sync_project.sync table1 table2
 
 If no tables are specified, the script will use the default list in `sync_project/sync.py`.
 
-### Example
+#### Example
 
 ```sh
 python -m sync_project.sync a_hp_batch a_hp_batch_detail
@@ -136,8 +136,8 @@ You can test with SQL*Plus:
 sqlplus your_oracle_user/your_oracle_password@YOURDB
 ```
 
-If you connect successfully, your Python script should also
+If you connect successfully, your Python script should also work.
 
 ## License
 
-MIT
+MIT License
