@@ -11,6 +11,7 @@ setup(
     entry_points={
         "console_scripts": [
             "sync-project=sync_project.sync:main",
+            "sync-schema=sync_project.sync_schema:main",  
         ],
     },
 )
