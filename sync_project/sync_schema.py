@@ -1,15 +1,14 @@
 import sys
-import psycopg2  # pyright: ignore[reportMissingModuleSource]
 import oracledb as cx_Oracle  # type: ignore
 import tempfile
 import csv
 import time
 import logging
+import os
 from .config import (
     ORACLE_USER,
     ORACLE_PASS,
     ORACLE_SCHEMA,
-    PG_CONN,
     ORACLE_HOST,
     ORACLE_PORT,
     ORACLE_SID,
@@ -31,48 +30,56 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DEFAULT_TABLES = [
-    "cust_ledger_adjust",
-    "cust_ledger_balance",
-    "cust_ledger_header",
-    "cust_ledger_intdepapp",
-    "cust_ledger_latechg",
-    "cust_ledger_payment",
-    "cust_ledger_ppvchg",
-    "cust_ledger_ppvcrd",
-    "cust_ledger_rates",
-    "cust_ledger_taxes",
-    "cust_ledger_taxes_jvh",
+    # "cust_ledger_header",
+    # "cust_ledger_intdepapp",
+    # "cust_ledger_latechg",
+    # "cust_ledger_payment",
+    # "cust_ledger_ppvchg",
+    # "cust_ledger_ppvcrd",
+    # "cust_ledger_rates",
+    # "cust_ledger_taxes",
+    # "cust_ledger_taxes_jvh",
     "cust_ledger_trans",
     "cust_ledger_writeoff",
     "sumcodes",
 ]
 
+OUTPUT_DIR = "/mnt/d/Postgresql/sync_data/data"
 
-def sync_table(table_name, ora_cur, pg_cur, pg_conn, pg_schema):
+
+def write_to_csv(rows, table_name, pg_columns, part=None):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    suffix = f"_part{part}" if part else ""
+    file_path = os.path.join(OUTPUT_DIR, f"{table_name}{suffix}.csv")
+
+    with open(file_path, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f, delimiter="^", quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        for row in rows:
+            clean_row = ["" if v is None else str(v).replace("\x00", "") for v in row]
+            writer.writerow(clean_row)
+
+    logger.info(f"💾 {table_name}{suffix}: export {len(rows)} rows ke {file_path}")
+
+
+def sync_table(table_name, ora_cur):
     start_time = time.time()
-    fq_table = f"{pg_schema}.{table_name}"  # fully qualified name
 
-    # --- Ambil kolom target PostgreSQL ---
-    pg_cur.execute(
+    # --- Ambil kolom dari Oracle ---
+    ora_cur.execute(
         """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE lower(table_schema) = lower(%s)
-        AND lower(table_name) = lower(%s)
-        ORDER BY ordinal_position
+        SELECT COLUMN_NAME
+        FROM ALL_TAB_COLUMNS
+        WHERE OWNER = :p_schema AND TABLE_NAME = :p_table
+        ORDER BY COLUMN_ID
         """,
-        (pg_schema, table_name),
+        p_schema=ORACLE_SCHEMA.upper(),
+        p_table=table_name.upper(),
     )
-    pg_columns = [r[0] for r in pg_cur.fetchall()]
+    pg_columns = [r[0].lower() for r in ora_cur.fetchall()]
 
     if not pg_columns:
-        logger.warning(f"⚠️ Table {fq_table} tidak ditemukan di PostgreSQL, skip...")
+        logger.warning(f"⚠️ Table {table_name} tidak ditemukan di Oracle, skip...")
         return
-
-    # --- Truncate target table ---
-    pg_cur.execute(f'TRUNCATE TABLE "{pg_schema}"."{table_name}" RESTART IDENTITY CASCADE;')
-    pg_conn.commit()
-    logger.info(f"🧹 {fq_table}: truncated sebelum insert.")
 
     # --- Hitung jumlah row di Oracle ---
     ora_cur.execute(f'SELECT COUNT(*) FROM "{ORACLE_SCHEMA}"."{table_name.upper()}"')
@@ -85,30 +92,11 @@ def sync_table(table_name, ora_cur, pg_cur, pg_conn, pg_schema):
         f'FROM "{ORACLE_SCHEMA}"."{table_name.upper()}"'
     )
 
-    def write_and_copy(rows):
-        with tempfile.NamedTemporaryFile(mode="w+", newline="", delete=False) as tmpfile:
-            writer = csv.writer(tmpfile, delimiter="^", quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            for row in rows:
-                clean_row = ["" if v is None else str(v).replace("\x00", "") for v in row]
-                writer.writerow(clean_row)
-            tmpfile.flush()
-            tmpfile.seek(0)
-            pg_cur.copy_expert(
-                f"""
-                COPY "{pg_schema}"."{table_name}" ({", ".join(pg_columns)})
-                FROM STDIN WITH (FORMAT CSV, DELIMITER '^', QUOTE '"', NULL '')
-                """,
-                tmpfile,
-            )
-        pg_conn.commit()
-
-    # --- Mode fetch: full fetch atau batch ---
-    if total_count < 500_000:
+    if total_count < 1_500_000:
         rows = ora_cur.fetchall()
-        write_and_copy(rows)
-        logger.info(f"🎉 {fq_table}: sync selesai, inserted {len(rows)} rows.")
+        write_to_csv(rows, table_name, pg_columns)
     else:
-        batch_size = 500_000
+        batch_size = 1_500_000
         total_rows = 0
         chunk = 0
         while True:
@@ -116,14 +104,12 @@ def sync_table(table_name, ora_cur, pg_cur, pg_conn, pg_schema):
             if not rows:
                 break
             chunk += 1
-            write_and_copy(rows)
+            write_to_csv(rows, table_name, pg_columns, part=chunk)
             total_rows += len(rows)
-            logger.info(f"✅ {fq_table}: chunk {chunk}, total {total_rows} rows inserted...")
-
-        logger.info(f"🎉 {fq_table}: sync selesai, inserted {total_rows} rows.")
+            logger.info(f"✅ {table_name}: chunk {chunk}, total {total_rows} rows exported...")
 
     elapsed = time.time() - start_time
-    logger.info(f"⏱️ {fq_table}: selesai dalam {elapsed:.2f} detik.\n")
+    logger.info(f"⏱️ {table_name}: selesai dalam {elapsed:.2f} detik.\n")
 
 
 def main():
@@ -137,18 +123,12 @@ def main():
     ora_conn = cx_Oracle.connect(user=ORACLE_USER, password=ORACLE_PASS, dsn=dsn)
     ora_cur = ora_conn.cursor()
 
-    # --- PostgreSQL connect ---
-    pg_conn = psycopg2.connect(**PG_CONN)
-    pg_cur = pg_conn.cursor()
-
     for tbl in tables:
         try:
-            sync_table(tbl, ora_cur, pg_cur, pg_conn, PG_SCHEMA)
+            sync_table(tbl, ora_cur)
         except Exception as e:
-            logger.error(f"❌ Error sync {tbl}: {e}", exc_info=True)
+            logger.error(f"❌ Error export {tbl}: {e}", exc_info=True)
 
-    pg_cur.close()
-    pg_conn.close()
     ora_cur.close()
     ora_conn.close()
 

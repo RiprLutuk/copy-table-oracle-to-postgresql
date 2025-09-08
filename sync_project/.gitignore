@@ -1,3 +1,4 @@
 config.py
+prdconfig.py
 __pycache__/
 *.egg
